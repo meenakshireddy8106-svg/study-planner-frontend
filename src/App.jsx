@@ -1,97 +1,111 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-const API_URL = "http://localhost:8080/api/tasks";
+const API_URL = "https://study-planner-k817.onrender.com/api/tasks";
 
 function App() {
   const [subject, setSubject] = useState("");
   const [task, setTask] = useState("");
   const [tasks, setTasks] = useState([]);
   const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
 
+  // Get all tasks from backend
+  const loadTasks = async () => {
+    try {
+      setLoading(true);
+
+      const response = await fetch(API_URL);
+
+      if (!response.ok) {
+        throw new Error("Failed to load tasks");
+      }
+
+      const data = await response.json();
+      setTasks(data);
+    } catch (error) {
+      console.error(error);
+      setMessage("❌ Cannot connect to backend");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load tasks when page opens
   useEffect(() => {
-    fetch(API_URL)
-      .then((response) => response.json())
-      .then((data) => setTasks(data))
-      .catch((error) => console.error("Error loading tasks:", error));
+    loadTasks();
   }, []);
 
-  const saveTask = async () => {
+  // Add or Update task
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
     if (!subject.trim() || !task.trim()) {
-      alert("Please enter subject and task!");
+      setMessage("⚠️ Please enter subject and task");
       return;
     }
 
-    const existingTask = tasks.find((item) => item.id === editingId);
-
-    const taskData = {
-      subject,
-      task,
-      completed: existingTask ? existingTask.completed : false,
-    };
-
     try {
+      setMessage("");
+
+      const taskData = {
+        subject: subject,
+        task: task,
+        completed: false,
+      };
+
+      let response;
+
       if (editingId) {
-        const response = await fetch(`${API_URL}/${editingId}`, {
+        response = await fetch(`${API_URL}/${editingId}`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(taskData),
         });
-
-        const updatedTask = await response.json();
-
-        setTasks(
-          tasks.map((item) =>
-            item.id === editingId ? updatedTask : item
-          )
-        );
-
-        setEditingId(null);
       } else {
-        const response = await fetch(API_URL, {
+        response = await fetch(API_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(taskData),
         });
+      }
 
-        const savedTask = await response.json();
-        setTasks([...tasks, savedTask]);
+      if (!response.ok) {
+        throw new Error("Request failed");
       }
 
       setSubject("");
       setTask("");
+      setEditingId(null);
+
+      setMessage(
+        editingId
+          ? "✅ Task updated successfully!"
+          : "🎉 Task added successfully!"
+      );
+
+      await loadTasks();
     } catch (error) {
-      console.error("Error saving task:", error);
+      console.error(error);
+      setMessage("❌ Unable to save task");
     }
   };
 
-  const editTask = (item) => {
-    setEditingId(item.id);
-    setSubject(item.subject);
-    setTask(item.task);
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setSubject("");
-    setTask("");
-  };
-
-  const toggleTask = async (id) => {
-    const selectedTask = tasks.find((item) => item.id === id);
-
-    const updatedTask = {
-      subject: selectedTask.subject,
-      task: selectedTask.task,
-      completed: !selectedTask.completed,
-    };
-
+  // Mark task completed / incomplete
+  const toggleCompleted = async (item) => {
     try {
-      const response = await fetch(`${API_URL}/${id}`, {
+      const updatedTask = {
+        subject: item.subject,
+        task: item.task,
+        completed: !item.completed,
+      };
+
+      const response = await fetch(`${API_URL}/${item.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -99,160 +113,210 @@ function App() {
         body: JSON.stringify(updatedTask),
       });
 
-      const savedTask = await response.json();
+      if (!response.ok) {
+        throw new Error("Failed to update task");
+      }
 
-      setTasks(
-        tasks.map((item) =>
-          item.id === id ? savedTask : item
-        )
-      );
+      await loadTasks();
     } catch (error) {
-      console.error("Error updating task:", error);
+      console.error(error);
+      setMessage("❌ Unable to update task");
     }
   };
 
+  // Edit task
+  const editTask = (item) => {
+    setSubject(item.subject);
+    setTask(item.task);
+    setEditingId(item.id);
+    setMessage("");
+  };
+
+  // Delete task
   const deleteTask = async (id) => {
+    const confirmDelete = window.confirm(
+      "Are you sure you want to delete this task?"
+    );
+
+    if (!confirmDelete) {
+      return;
+    }
+
     try {
-      await fetch(`${API_URL}/${id}`, {
+      const response = await fetch(`${API_URL}/${id}`, {
         method: "DELETE",
       });
 
-      setTasks(tasks.filter((item) => item.id !== id));
+      if (!response.ok) {
+        throw new Error("Failed to delete task");
+      }
+
+      setMessage("🗑️ Task deleted successfully!");
+      await loadTasks();
     } catch (error) {
-      console.error("Error deleting task:", error);
+      console.error(error);
+      setMessage("❌ Unable to delete task");
     }
   };
 
-  const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(
-    (item) => item.completed
-  ).length;
-  const pendingTasks = totalTasks - completedTasks;
+  // Cancel editing
+  const cancelEdit = () => {
+    setSubject("");
+    setTask("");
+    setEditingId(null);
+    setMessage("");
+  };
 
-  const progress =
-    totalTasks === 0
-      ? 0
-      : Math.round((completedTasks / totalTasks) * 100);
+  const completedCount = tasks.filter((item) => item.completed).length;
 
   return (
-    <div className="app">
+    <div className="app-container">
       <div className="planner-card">
-        <h1>🌸 Study Planner</h1>
 
-        <p className="subtitle">
-          Plan your studies and stay productive ✨
-        </p>
+        <div className="header">
+          <div className="flower">🌸</div>
 
-        {/* Dashboard */}
-        <div className="dashboard">
-          <div className="stat-card">
+          <h1>Study Planner</h1>
+
+          <p>
+            Plan your studies, complete your tasks and achieve your goals! 📚
+          </p>
+        </div>
+
+        <div className="stats">
+          <div className="stat-box">
             <span>📚</span>
-            <h3>{totalTasks}</h3>
-            <p>Total Tasks</p>
+            <strong>{tasks.length}</strong>
+            <small>Total Tasks</small>
           </div>
 
-          <div className="stat-card">
+          <div className="stat-box">
             <span>✅</span>
-            <h3>{completedTasks}</h3>
-            <p>Completed</p>
+            <strong>{completedCount}</strong>
+            <small>Completed</small>
           </div>
 
-          <div className="stat-card">
+          <div className="stat-box">
             <span>⏳</span>
-            <h3>{pendingTasks}</h3>
-            <p>Pending</p>
-          </div>
-
-          <div className="stat-card">
-            <span>🌟</span>
-            <h3>{progress}%</h3>
-            <p>Progress</p>
+            <strong>{tasks.length - completedCount}</strong>
+            <small>Remaining</small>
           </div>
         </div>
 
-        {/* Progress */}
-        <div className="progress-section">
-          <div className="progress-title">
-            <span>Study Progress</span>
-            <strong>{progress}%</strong>
-          </div>
+        <form onSubmit={handleSubmit} className="task-form">
 
-          <div className="progress-bar">
-            <div
-              className="progress-fill"
-              style={{ width: `${progress}%` }}
-            ></div>
-          </div>
-        </div>
-
-        {/* Add/Edit Task */}
-        <div className="input-section">
           <input
             type="text"
-            placeholder="Enter subject"
+            placeholder="Enter subject..."
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
           />
 
           <input
             type="text"
-            placeholder="Enter study task"
+            placeholder="Enter study task..."
             value={task}
             onChange={(e) => setTask(e.target.value)}
           />
 
-          <button onClick={saveTask}>
+          <button type="submit" className="add-button">
             {editingId ? "💾 Update Task" : "➕ Add Task"}
           </button>
 
           {editingId && (
-            <button onClick={cancelEdit}>
+            <button
+              type="button"
+              className="cancel-button"
+              onClick={cancelEdit}
+            >
               ❌ Cancel
             </button>
           )}
-        </div>
+        </form>
 
-        <h2>📚 My Tasks</h2>
+        {message && (
+          <div className="message">
+            {message}
+          </div>
+        )}
 
-        <div className="task-list">
-          {tasks.length === 0 ? (
-            <p className="empty">
-              No tasks yet. Add your first study task! 🌷
-            </p>
+        <div className="task-section">
+
+          <h2>📋 My Study Tasks</h2>
+
+          {loading ? (
+            <div className="empty-message">
+              ⏳ Loading tasks...
+            </div>
+          ) : tasks.length === 0 ? (
+            <div className="empty-message">
+              🌷 No tasks yet. Add your first study task!
+            </div>
           ) : (
-            tasks.map((item) => (
-              <div
-                className={`task-card ${
-                  item.completed ? "completed" : ""
-                }`}
-                key={item.id}
-              >
-                <div>
-                  <h3>{item.subject}</h3>
-                  <p>{item.task}</p>
+            <div className="task-list">
+
+              {tasks.map((item) => (
+                <div
+                  className={`task-card ${
+                    item.completed ? "completed" : ""
+                  }`}
+                  key={item.id}
+                >
+
+                  <div className="task-info">
+
+                    <h3>
+                      {item.completed ? "✅ " : "📖 "}
+                      {item.subject}
+                    </h3>
+
+                    <p>{item.task}</p>
+
+                    <span className="status">
+                      {item.completed
+                        ? "Completed 🎉"
+                        : "Not Completed ⏳"}
+                    </span>
+
+                  </div>
+
+                  <div className="task-actions">
+
+                    <button
+                      onClick={() => toggleCompleted(item)}
+                      className="complete-button"
+                    >
+                      {item.completed ? "↩️ Undo" : "✅ Done"}
+                    </button>
+
+                    <button
+                      onClick={() => editTask(item)}
+                      className="edit-button"
+                    >
+                      ✏️ Edit
+                    </button>
+
+                    <button
+                      onClick={() => deleteTask(item.id)}
+                      className="delete-button"
+                    >
+                      🗑️ Delete
+                    </button>
+
+                  </div>
+
                 </div>
+              ))}
 
-                <div className="task-buttons">
-                  <button onClick={() => toggleTask(item.id)}>
-                    {item.completed ? "↩️ Undo" : "✅ Done"}
-                  </button>
-
-                  <button onClick={() => editTask(item)}>
-                    ✏️ Edit
-                  </button>
-
-                  <button onClick={() => deleteTask(item.id)}>
-                    🗑️ Delete
-                  </button>
-                </div>
-              </div>
-            ))
+            </div>
           )}
+
         </div>
 
-        <div className="task-count">
-          Total Tasks: <strong>{totalTasks}</strong>
+        <div className="footer">
+          🌸 Stay focused • Study smart • Achieve your dreams 🌸
         </div>
+
       </div>
     </div>
   );
